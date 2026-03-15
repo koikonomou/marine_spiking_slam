@@ -15,7 +15,7 @@ def load_ground_truth(path):
 
 def run_full_system():
     # Paths
-    VIDEO_DIR = Path("/home/kate/datasets/Maritime_Visual_Tracking_Dataset_MVTD/train/119-USV//").expanduser()
+    VIDEO_DIR = Path("~/codes/datasets/Maritime_Visual_Tracking_Dataset_MVTD/train/119-USV/").expanduser()
     GT_PATH = VIDEO_DIR / "groundtruth.txt"
     
     frames = sorted(list(VIDEO_DIR.glob("*.jpg")))
@@ -33,8 +33,8 @@ def run_full_system():
         
         # SLAM Pipeline
         vt, vr = vo.calculate(img)
-        curr_template = lv.get_view_template(img)
-        lv.compare(curr_template)
+        curr_template, vt_mean = lv.get_view_template(img)
+        lv.compare(curr_template, vt_mean)
         em.add_experience(vt, vr)
 
         # Optional: Show video

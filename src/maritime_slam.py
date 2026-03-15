@@ -2,6 +2,9 @@ import cv2
 import numpy as np
 import os
 from pathlib import Path
+from obstacle_detection import ObstacleDetector
+from collision_avoidance import CollisionAvoider
+
 
 class MaritimeSLAM:
     def __init__(self, width, height):
@@ -9,70 +12,82 @@ class MaritimeSLAM:
         self.pc_dim_xy = 21
         self.pc_dim_th = 36
         self.cells = np.zeros((self.pc_dim_th, self.pc_dim_xy, self.pc_dim_xy))
-        self.cells[0, 10, 10] = 1.0  # Start in the center
-        
+        self.cells[0, 10, 10] = 1.0  # Start in the centre
+
         # 2. Visual Templates (Local View Match)
         self.templates = []
         self.vt_threshold = 0.1
-        
+
         # 3. Odometry State
         self.prev_gray = None
-        self.fov_deg = 60
-        self.width = width
-        self.height = height
+        self.fov_deg   = 60
+        self.width     = width
+        self.height    = height
+
+        # 4. CV-based obstacle detection and avoidance (no distance sensors)
+        self.detector = ObstacleDetector()
+        self.avoider  = CollisionAvoider()
 
     def get_odometry(self, gray):
-        """Calculates v_trans and v_rot based on image differencing."""
+        """Calculates v_trans and v_rot based on non-circular image profile matching."""
         if self.prev_gray is None:
             self.prev_gray = gray
             return 0.0, 0.0
-        
-        # Collapse into 1D profile (LocalViewMatch logic)
-        curr_profile = np.mean(gray[int(self.height*0.4):int(self.height*0.6), :], axis=0)
-        prev_profile = np.mean(self.prev_gray[int(self.height*0.4):int(self.height*0.6), :], axis=0)
-        
-        # Find horizontal shift for v_rot
-        diffs = []
+
+        curr_profile = np.mean(gray[int(self.height * 0.4):int(self.height * 0.6), :], axis=0)
+        prev_profile = np.mean(self.prev_gray[int(self.height * 0.4):int(self.height * 0.6), :], axis=0)
+
+        n = len(curr_profile)
         shifts = range(-20, 21)
+        diffs = []
         for s in shifts:
-            shifted = np.roll(curr_profile, s)
-            diffs.append(np.mean(np.abs(shifted - prev_profile)))
-            
+            if s >= 0:
+                diff = np.mean(np.abs(curr_profile[s:] - prev_profile[:n - s]))
+            else:
+                diff = np.mean(np.abs(curr_profile[:n + s] - prev_profile[-s:]))
+            diffs.append(diff)
+
         best_shift = shifts[np.argmin(diffs)]
-        v_rot = (best_shift * self.fov_deg / self.width) * (np.pi / 180.0)
-        v_trans = np.min(diffs) * 10.0 # Scaling factor
-        
+        v_rot   = (best_shift * self.fov_deg / self.width) * (np.pi / 180.0)
+        v_trans = float(np.min(diffs)) * 10.0
+
         self.prev_gray = gray
         return v_trans, v_rot
 
-    def detect_obstacles(self, frame):
-        """Canny and Thresholding for Docks."""
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        blur = cv2.GaussianBlur(gray, (5, 5), 0)
-        edges = cv2.Canny(blur, 50, 150)
-        
-        # Mask the top 40% (Sky)
-        edges[:int(self.height*0.4), :] = 0
-        return edges
-
     def run_pipeline(self, frame):
+        """
+        Run one frame through the full pipeline.
+
+        Returns
+        -------
+        v_trans_cmd, v_rot_cmd : float  — avoidance-corrected velocity commands
+        obstacle_mask          : uint8  — fused obstacle mask
+        is_danger              : bool
+        pixel_counts           : dict   {'left', 'center', 'right'}
+        ttc_s                  : float  — time-to-collision estimate
+        action                 : str    — avoidance action label
+        """
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        
-        # 1. Get Motion
+
+        # 1. Odometry
         v_trans, v_rot = self.get_odometry(gray)
-        
-        # 2. Update Pose Cells (Simplified Path Integration)
-        # Shift cells based on v_rot (Theta axis)
+
+        # 2. Pose cell path integration (theta only, simplified)
         shift_th = int(v_rot * self.pc_dim_th / (2 * np.pi))
         self.cells = np.roll(self.cells, shift_th, axis=0)
-        
-        # 3. Detect Obstacles
-        obstacles = self.detect_obstacles(frame)
-        
-        return v_trans, v_rot, obstacles
+
+        # 3. Multi-modal CV obstacle detection
+        obstacle_mask, is_danger, pixel_counts, ttc_s = self.detector.detect(frame)
+
+        # 4. Collision avoidance steering
+        v_trans_cmd, v_rot_cmd, action = self.avoider.avoid(
+            pixel_counts, ttc_s, v_trans, v_rot
+        )
+
+        return v_trans_cmd, v_rot_cmd, obstacle_mask, is_danger, pixel_counts, ttc_s, action
 
 # --- Execution Block ---
-base_path = os.path.expanduser("~/datasets/Maritime_Visual_Tracking_Dataset_MVTD/train/119-USV/")
+base_path = Path(os.path.expanduser("~/codes/datasets/Maritime_Visual_Tracking_Dataset_MVTD/train/119-USV/"))
 frames = sorted([f.name for f in base_path.glob("*.jpg")])
 # Filter for jpg files and ensure the list isn't empty
 frames = sorted([f.name for f in base_path.glob("*.jpg")])
@@ -96,22 +111,22 @@ slam = MaritimeSLAM(w, h)
 for f_name in frames:
     frame_path = str(base_path / f_name)
     frame = cv2.imread(frame_path)
-    
+
     if frame is None:
-        continue    
-    frame = cv2.imread(os.path.join(dataset_path, f_name))
-    vt, vr, obs = slam.run_pipeline(frame)
-    
-    # Visualization
-    display = frame.copy()
-    # Draw "Danger" if many edges detected in front
-    if np.sum(obs[:, w//3 : 2*w//3]) > 5000:
-        cv2.putText(display, "OBSTACLE DETECTED", (50, 50), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-    
+        continue
+
+    vt, vr, obs_mask, is_danger, pixel_counts, ttc_s, action = slam.run_pipeline(frame)
+
+    display = CollisionAvoider.draw_hud(frame.copy(), pixel_counts, ttc_s, action)
+
+    # Tint obstacle pixels red
+    red_overlay = np.zeros_like(frame)
+    red_overlay[obs_mask > 0] = [0, 0, 200]
+    display = cv2.addWeighted(display, 1.0, red_overlay, 0.45, 0)
+
     cv2.imshow("Maritime SLAM & Obstacle Avoidance", display)
-    cv2.imshow("Canny Filter", obs)
-    
+    cv2.imshow("Obstacle Mask", obs_mask)
+
     if cv2.waitKey(30) & 0xFF == ord('q'):
         break
 
