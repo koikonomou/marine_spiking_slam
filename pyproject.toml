@@ -1,0 +1,20 @@
+[project]
+name = "marine-spiking-slam"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Katerina Oikonomou",email = "k.m.oikonomou@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "opencv-python (>=4.13.0.92,<5.0.0.0)",
+    "numpy (>=2.4.3,<3.0.0)",
+    "matplotlib (>=3.10.8,<4.0.0)",
+    "scipy (>=1.17.1,<2.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
