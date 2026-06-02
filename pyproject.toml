@@ -1,20 +1,25 @@
 [project]
 name = "marine-spiking-slam"
 version = "0.1.0"
-description = ""
+description = "Marine spiking neural network SLAM with CV-based obstacle avoidance"
 authors = [
-    {name = "Katerina Oikonomou",email = "k.m.oikonomou@gmail.com"}
+    {name = "Katerina Oikonomou", email = "k.m.oikonomou@gmail.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.10"
 dependencies = [
-    "opencv-python (>=4.13.0.92,<5.0.0.0)",
-    "numpy (>=2.4.3,<3.0.0)",
-    "matplotlib (>=3.10.8,<4.0.0)",
-    "scipy (>=1.17.1,<2.0.0)"
+    "opencv-python>=4.10",
+    "numpy>=2.0",
+    "matplotlib>=3.9",
+    "scipy>=1.13"
 ]
 
+[tool.poetry]
+packages = [{ include = "src" }]
+
+[tool.poetry.scripts]
+marine-slam = "src.main:run_full_system"
 
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
+requires = ["poetry-core>=2.0.0"]
 build-backend = "poetry.core.masonry.api"

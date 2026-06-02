@@ -20,16 +20,19 @@ class VisualOdometry:
             self.prev_profile = curr_profile
             return 0.0, 0.0
 
-        # Match profiles
-        diffs = []
+        n = len(curr_profile)
         shifts = range(-30, 31)
+        diffs = []
         for s in shifts:
-            shifted = np.roll(curr_profile, s)
-            diffs.append(np.mean(np.abs(shifted - self.prev_profile)))
-        
+            if s >= 0:
+                diff = np.mean(np.abs(curr_profile[s:] - self.prev_profile[:n - s]))
+            else:
+                diff = np.mean(np.abs(curr_profile[:n + s] - self.prev_profile[-s:]))
+            diffs.append(diff)
+
         best_shift = shifts[np.argmin(diffs)]
         v_rot = (best_shift / self.width) * self.fov_rad
-        v_trans = np.min(diffs) * 5.0 # Empirical scaling
-        
+        v_trans = float(np.min(diffs)) * 5.0
+
         self.prev_profile = curr_profile
         return v_trans, v_rot
